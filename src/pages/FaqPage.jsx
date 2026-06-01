@@ -11,7 +11,7 @@ const SECTIONS = [
       },
       {
         q: '¿Cómo me registro?',
-        a: 'Ve a la pantalla de registro, introduce tu nombre, email, contraseña y el código de invitación que te ha dado el organizador. Sin ese código no puedes entrar.',
+        a: 'Ve a la pantalla de registro, introduce tu nombre, email y contraseña. Solo pueden registrarse las personas que el organizador haya invitado.',
       },
       {
         q: '¿Qué puedo predecir en cada partido?',
@@ -35,8 +35,12 @@ const SECTIONS = [
         a: 'Solo los partidos de los próximos 3 días (hoy, mañana y pasado mañana). Así no se satura la pantalla con cien partidos a la vez.\n\nAntes de que arranque el torneo, la app muestra el primer partido y un acceso directo a Pre-Mundial para que no te olvides de hacer tus pronósticos a largo plazo.',
       },
       {
+        q: '¿Me avisa si tengo un partido sin apostar?',
+        a: 'Sí. Si hay un partido que empieza en menos de 60 minutos y aún no has apostado, aparece un aviso ⚡ en la pantalla principal con un botón directo al partido.',
+      },
+      {
         q: '¿Puedo ver las predicciones de los demás?',
-        a: 'No hasta que el mercado cierre. Una vez cerrado, se muestran todas las predicciones del grupo para ese partido.',
+        a: 'No hasta que el mercado cierre. Una vez cerrado, se muestran todas las predicciones del grupo para ese partido, junto con un resumen visual de cuántos eligieron cada opción (local / empate / visitante, BTTS, Over/Under).',
       },
       {
         q: '¿Qué pasa si el partido se cancela?',
@@ -90,7 +94,7 @@ const SECTIONS = [
       },
       {
         q: '¿Cuándo se saben los puntos Pre-Mundial?',
-        a: 'Al terminar el torneo. El administrador introduce el campeón real, subcampeón, bota de oro y los clasificados reales por grupo, y el sistema asigna los puntos automáticamente.',
+        a: 'En dos fases:\n• Al terminar la fase de grupos: el admin calcula los puntos de clasificados por grupo.\n• Al terminar el torneo: el admin calcula los puntos de campeón, subcampeón y bota de oro.\n\nAmbas se calculan de forma independiente y sin doble conteo.',
       },
     ],
   },
@@ -123,16 +127,37 @@ const SECTIONS = [
         a: 'Solo los puntos conseguidos en los partidos terminados hoy. Útil para ver quién lo está haciendo mejor en el día.',
       },
       {
-        q: '¿Qué son los Rankings por Jornada?',
-        a: 'Además del ranking general, hay un mini-ranking para cada fase del torneo:\n• Jornada 1, 2 y 3 de la fase de grupos\n• Ronda de 32, Octavos, Cuartos, Semis y Final\n\nEn cada jornada se suman solo los puntos de esa fase. El que más puntos acumule en una jornada gana un bonus de +200 pts que sí cuenta en el ranking general.',
+        q: '¿Qué son las Jornadas?',
+        a: 'Hay un mini-ranking para cada fase del torneo (Jornada 1, 2, 3, Ronda de 32, Octavos, Cuartos, Semis y Final). El jugador con más puntos en cada jornada recibe un bonus de +200 pts. Si hay empate, todos los empatados se llevan el bonus.',
       },
       {
-        q: '¿Qué pasa si hay empate en una jornada?',
-        a: 'Si dos o más jugadores empatan al frente de una jornada, todos reciben los +200 pts. No hay desempate.',
+        q: '¿Qué hay en "Diversión"?',
+        a: 'Rankings sin impacto en la puntuación, solo por el honor:\n• 🔥 Rachas en 1x2: quién lleva más resultados consecutivos correctos\n• 📱 Más enganchado: el que más veces ha abierto la app\n• 🤔 Más indeciso: el que más veces ha cambiado sus predicciones',
       },
       {
-        q: '¿Qué es la tab "Diversión"?',
-        a: 'Un par de rankings sin impacto en la puntuación, solo por el honor:\n• 🔥 Más enganchado: el que más veces ha abierto la app\n• 🤔 Más indeciso: el que más veces ha cambiado sus predicciones después de guardarlas',
+        q: '¿Qué es "Mis Stats"?',
+        a: 'Una tab personal con tus estadísticas: racha actual de aciertos en 1x2, tu mejor racha histórica, y el porcentaje de acierto en cada mercado (1x2, BTTS, Over/Under y Exacta).',
+      },
+      {
+        q: '¿Qué es "H2H" (Head to Head)?',
+        a: 'Puedes seleccionar dos jugadores cualesquiera y ver una comparativa directa: puntos totales, % de acierto en 1x2, y el resultado del duelo directo en los partidos donde ambos apostaron resultado (cuántos ganó cada uno).',
+      },
+    ],
+  },
+  {
+    title: '👤 Perfil e historial',
+    items: [
+      {
+        q: '¿Dónde veo todas mis predicciones pasadas?',
+        a: 'En tu perfil, pulsa "Mi historial de predicciones". Verás todas tus apuestas ordenadas por fecha, con filtros por resultado: Todos, Acertados, Fallados y Pendientes.',
+      },
+      {
+        q: '¿Qué son los logros?',
+        a: 'Insignias que se desbloquean automáticamente cuando cumples ciertos hitos:\n• 🎯 Bautismo de fuego: primera predicción de resultado correcta\n• 🦅 Ojo de águila: primera exacta acertada\n• 🔥 En racha: 3 resultados consecutivos correctos\n• ⚡ Máquina: 5 resultados consecutivos correctos\n• ⭐ Partido perfecto: aciertas 1x2, BTTS y Over/Under en el mismo partido\n• 🔮 Adivino: 3 marcadores exactos acertados\n• 🏅 Veterano: 20 predicciones de resultado apostadas',
+      },
+      {
+        q: '¿Cómo me entero de que he desbloqueado un logro?',
+        a: 'La próxima vez que abras la app después de conseguirlo, aparece un banner en la parte inferior de la pantalla con el nombre y descripción del logro. Solo aparece una vez.',
       },
     ],
   },
@@ -160,7 +185,7 @@ export default function FaqPage() {
           </h3>
           <div className="bg-surface border border-border rounded-xl overflow-hidden">
             {section.items.map((item, i) => {
-              const key = `${section.title}-${i}`
+              const key    = `${section.title}-${i}`
               const isOpen = open === key
               return (
                 <div key={key} className="border-b border-border last:border-0">
@@ -205,6 +230,7 @@ export default function FaqPage() {
             ['¿Quién Clasifica? (KO)',     '20 pts'],
             ['Bonus 3 aciertos',          '+30 pts'],
             ['Bonus todos los aciertos',  '+50 pts'],
+            ['Bonus jornada (1.º de fase)','+200 pts'],
             ['Campeón del Mundo',         '100 pts'],
             ['Subcampeón',                 '80 pts'],
             ['Bota de Oro',                '50 pts'],

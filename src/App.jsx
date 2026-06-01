@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { doc, updateDoc } from 'firebase/firestore'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { db } from './firebase'
-import { BADGES } from './utils/constants'
+import { APP_VERSION, BADGES, CHANGELOG } from './utils/constants'
 import ProtectedRoute from './components/layout/ProtectedRoute'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
@@ -66,6 +66,55 @@ function AppLayout() {
       </main>
       <BottomNav />
       <BadgeNotification />
+      <WhatsNewModal />
+    </div>
+  )
+}
+
+function WhatsNewModal() {
+  const { user, profile } = useAuth()
+  const [visible, setVisible] = useState(false)
+  const entry = CHANGELOG[0]
+
+  useEffect(() => {
+    if (profile && profile.lastSeenVersion !== APP_VERSION) {
+      setVisible(true)
+    }
+  }, [profile?.lastSeenVersion])
+
+  async function dismiss() {
+    setVisible(false)
+    if (user) {
+      await updateDoc(doc(db, 'users', user.uid), { lastSeenVersion: APP_VERSION }).catch(() => {})
+    }
+  }
+
+  if (!visible || !entry) return null
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/60">
+      <div className="bg-surface border border-border rounded-2xl w-full max-w-sm flex flex-col gap-4 p-5 shadow-2xl">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-display font-semibold text-primary uppercase tracking-widest">Novedades · v{entry.version}</p>
+            <h2 className="font-display font-bold text-xl text-white mt-0.5">{entry.title}</h2>
+          </div>
+          <button onClick={dismiss} className="text-muted hover:text-white text-2xl leading-none shrink-0 mt-0.5">×</button>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          {entry.items.map((item, i) => (
+            <p key={i} className="text-sm font-body text-muted leading-relaxed">{item}</p>
+          ))}
+        </div>
+
+        <button
+          onClick={dismiss}
+          className="w-full bg-primary hover:bg-primary/80 text-white font-display font-semibold text-sm py-3 rounded-xl transition-colors"
+        >
+          ¡Entendido!
+        </button>
+      </div>
     </div>
   )
 }

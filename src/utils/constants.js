@@ -38,6 +38,26 @@ export const GROUP_LABELS = ['A','B','C','D','E','F','G','H','I','J','K','L']
 // Equipos anfitriones (ventaja de sede)
 export const HOST_TEAMS = ['México', 'Estados Unidos', 'Canadá']
 
+// Versión de la app — incrementar al añadir nuevas funciones
+export const APP_VERSION = '1.3.0'
+
+// Changelog — cada entrada se muestra en el modal "¿Qué hay de nuevo?"
+export const CHANGELOG = [
+  {
+    version: '1.3.0',
+    title:   '¡Logros, estadísticas y más!',
+    items: [
+      '🏅 Logros/Badges — desbloquea 7 insignias por hitos como primera exacta o racha de 5',
+      '📊 Mis Stats — % de acierto por mercado y tu racha en la tab Clasificación',
+      '⚔️ H2H — compara cualquier jugador con otro directamente',
+      '🔥 Rachas — ranking de rachas en la tab Diversión',
+      '📋 Mi historial — todas tus predicciones con filtros en el perfil',
+      '⚡ Aviso de partido próximo — banner cuando queda menos de 1 hora y no has apostado',
+      '👥 Distribución del grupo — ve qué eligieron tus amigos al cerrarse el mercado',
+    ],
+  },
+]
+
 // Logros/Badges
 export const BADGES = [
   { id: 'first_correct', emoji: '🎯', name: 'Bautismo de fuego', desc: 'Primera predicción de resultado correcta' },

@@ -5,7 +5,7 @@ const { defineString }       = require('firebase-functions/params')
 const db       = getFirestore()
 const fdorgKey = defineString('FDORG_KEY')
 
-exports.syncTopScorers = onCall(async (request) => {
+exports.syncTopScorers = onCall({ cors: true }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'No autorizado')
 
   const userDoc = await db.collection('users').doc(request.auth.uid).get()

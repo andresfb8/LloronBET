@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { collection, doc, deleteDoc, getDoc, getDocs, query, setDoc, updateDoc, increment, where, Timestamp } from 'firebase/firestore'
 import { db } from '../firebase'
 import { getFunctions, httpsCallable } from 'firebase/functions'
+import { useAuth } from '../contexts/AuthContext'
 import { useUsers } from '../hooks/useUsers'
 import { useMatches } from '../hooks/useMatches'
 import { GROUP_LABELS, WC2026_TEAMS } from '../utils/constants'
@@ -263,7 +264,7 @@ function TabPreMundial({ onToast }) {
   const [calcRunnerUp, setCalcRunnerUp]         = useState('')
   const [calcTopScorer, setCalcTopScorer]       = useState('')
   const [calcGroupResults, setCalcGroupResults] = useState({})
-  const [calculating, setCalculating]           = useState(false)
+  const [calculating, setCalculating]           = useState(null)
   const [syncingStandings, setSyncingStandings] = useState(false)
 
   useEffect(() => {
@@ -332,24 +333,37 @@ function TabPreMundial({ onToast }) {
     })
   }
 
-  async function handleCalculate() {
+  async function handleCalculateGroups() {
+    setCalculating('groups')
+    try {
+      const calcFn = httpsCallable(functions, 'calculateLongTermPoints')
+      const result = await calcFn({ scope: 'groups', groupResults: calcGroupResults })
+      onToast({ message: result.data.message, type: 'success' })
+    } catch (e) {
+      onToast({ message: e.message || 'Error al calcular', type: 'error' })
+    } finally {
+      setCalculating(null)
+    }
+  }
+
+  async function handleCalculateFinals() {
     if (!calcChampion || !calcRunnerUp || !calcTopScorer) {
       onToast({ message: 'Completa campeón, subcampeón y bota de oro', type: 'error' }); return
     }
-    setCalculating(true)
+    setCalculating('finals')
     try {
       const calcFn = httpsCallable(functions, 'calculateLongTermPoints')
       const result = await calcFn({
-        champion:     calcChampion,
-        runnerUp:     calcRunnerUp,
-        topScorer:    calcTopScorer,
-        groupResults: calcGroupResults,
+        scope:     'finals',
+        champion:  calcChampion,
+        runnerUp:  calcRunnerUp,
+        topScorer: calcTopScorer,
       })
       onToast({ message: result.data.message, type: 'success' })
     } catch (e) {
       onToast({ message: e.message || 'Error al calcular', type: 'error' })
     } finally {
-      setCalculating(false)
+      setCalculating(null)
     }
   }
 
@@ -364,9 +378,55 @@ function TabPreMundial({ onToast }) {
         </Button>
       </Card>
 
-      {/* Calcular puntos al terminar el torneo */}
-      <Card title="Calcular puntos Pre-Mundial">
-        <p className="text-xs text-muted">Al terminar el torneo, introduce los resultados reales para calcular los puntos de todos los usuarios.</p>
+      {/* Clasificados por grupo — al acabar la fase de grupos */}
+      <Card title="Puntos fase de grupos · +25 pts c/u">
+        <p className="text-xs text-muted">Calcular al terminar la fase de grupos. Se puede recalcular sin doble conteo.</p>
+
+        {GROUP_LABELS.some(g => groups[g]?.length >= 2) ? (
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-display font-semibold uppercase tracking-widest text-muted">Clasificados reales por grupo</p>
+              <button
+                onClick={handleSyncStandings}
+                disabled={syncingStandings}
+                className="text-xs font-display font-semibold text-primary border border-primary/40 bg-primary/10 px-2.5 py-1 rounded-lg disabled:opacity-50 shrink-0"
+              >
+                {syncingStandings ? 'Cargando…' : '↓ Sincronizar'}
+              </button>
+            </div>
+            <p className="text-xs text-muted">1.º y 2.º se sincronizan solos. El mejor 3.º (opcional) se añade manualmente.</p>
+            <div className="grid grid-cols-2 gap-3">
+              {GROUP_LABELS.filter(g => groups[g]?.length >= 2).map(g => (
+                <div key={g} className="flex flex-col gap-1.5">
+                  <span className="text-xs font-display font-semibold text-muted">Grupo {g}</span>
+                  {[
+                    { idx: 0, label: '1.º clasificado' },
+                    { idx: 1, label: '2.º clasificado' },
+                    { idx: 2, label: 'Mejor 3.º (opcional)' },
+                  ].map(({ idx, label }) => (
+                    <select key={idx} value={calcGroupResults[g]?.[idx] ?? ''}
+                      onChange={e => setGroupResult(g, idx, e.target.value)}
+                      className={`bg-odds-default border rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-primary ${idx === 2 ? 'border-border/50 opacity-70' : 'border-border'}`}>
+                      <option value="">— {label} —</option>
+                      {(groups[g] || []).map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <p className="text-xs text-muted italic">Los grupos se configurarán cuando se realice el sorteo.</p>
+        )}
+
+        <Button className="w-full" onClick={handleCalculateGroups} disabled={!!calculating}>
+          {calculating === 'groups' ? 'Calculando…' : 'Calcular puntos de grupos'}
+        </Button>
+      </Card>
+
+      {/* Campeón, subcampeón, bota de oro — al terminar el torneo */}
+      <Card title="Puntos finales del torneo">
+        <p className="text-xs text-muted">Calcular al terminar el torneo. Independiente de los puntos de grupos.</p>
 
         <div className="flex flex-col gap-2">
           <p className="text-xs font-display font-semibold uppercase tracking-widest text-muted">Campeón · +100 pts</p>
@@ -419,55 +479,22 @@ function TabPreMundial({ onToast }) {
           )}
         </div>
 
-        {/* Clasificados reales por grupo */}
-        {GROUP_LABELS.some(g => groups[g]?.length >= 2) && (
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-xs font-display font-semibold uppercase tracking-widest text-muted">Clasificados por grupo · +25 pts c/u</p>
-              <button
-                onClick={handleSyncStandings}
-                disabled={syncingStandings}
-                className="text-xs font-display font-semibold text-primary border border-primary/40 bg-primary/10 px-2.5 py-1 rounded-lg disabled:opacity-50 shrink-0"
-              >
-                {syncingStandings ? 'Cargando…' : '↓ Sincronizar'}
-              </button>
-            </div>
-            <p className="text-xs text-muted">1.º y 2.º clasificado se seleccionan solos al sincronizar. El mejor 3.º (opcional) se añade manualmente.</p>
-            <div className="grid grid-cols-2 gap-3">
-              {GROUP_LABELS.filter(g => groups[g]?.length >= 2).map(g => (
-                <div key={g} className="flex flex-col gap-1.5">
-                  <span className="text-xs font-display font-semibold text-muted">Grupo {g}</span>
-                  {[
-                    { idx: 0, label: '1.º clasificado' },
-                    { idx: 1, label: '2.º clasificado' },
-                    { idx: 2, label: 'Mejor 3.º (opcional)' },
-                  ].map(({ idx, label }) => (
-                    <select key={idx} value={calcGroupResults[g]?.[idx] ?? ''}
-                      onChange={e => setGroupResult(g, idx, e.target.value)}
-                      className={`bg-odds-default border rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-primary ${idx === 2 ? 'border-border/50 opacity-70' : 'border-border'}`}>
-                      <option value="">— {label} —</option>
-                      {(groups[g] || []).map(t => <option key={t} value={t}>{t}</option>)}
-                    </select>
-                  ))}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        <Button className="w-full" onClick={handleCalculate} disabled={calculating}>
-          {calculating ? 'Calculando…' : 'Calcular puntos Pre-Mundial'}
+        <Button className="w-full" onClick={handleCalculateFinals} disabled={!!calculating}>
+          {calculating === 'finals' ? 'Calculando…' : 'Calcular puntos finales'}
         </Button>
-        <p className="text-xs text-muted text-center">Esta acción es irreversible. Bloquea las predicciones y asigna puntos a todos los usuarios.</p>
+        <p className="text-xs text-muted text-center">Se puede recalcular sin doble conteo. Solo suma el delta respecto al cálculo anterior.</p>
       </Card>
     </div>
   )
 }
 
+const REPAIR_URL = 'https://us-central1-lloronbet.cloudfunctions.net/repairMissingUsers'
+
 /* ─── Tab: Usuarios ─── */
 function TabUsuarios() {
+  const { user }              = useAuth()
   const { usersMap, loading } = useUsers()
-  const [repairing, setRepairing] = useState(false)
+  const [repairing, setRepairing]     = useState(false)
   const [repairResult, setRepairResult] = useState(null)
 
   const users = Array.from(usersMap.values()).sort((a, b) => (b.totalPoints ?? 0) - (a.totalPoints ?? 0))
@@ -476,11 +503,17 @@ function TabUsuarios() {
     setRepairing(true)
     setRepairResult(null)
     try {
-      const repairFn = httpsCallable(functions, 'repairMissingUsers')
-      const result   = await repairFn()
-      setRepairResult(result.data)
+      const token    = await user.getIdToken()
+      const response = await fetch(REPAIR_URL, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body:    '{}',
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`)
+      setRepairResult(data)
     } catch (e) {
-      setRepairResult({ error: e.message || 'Error al reparar usuarios' })
+      setRepairResult({ error: e.message || 'Error desconocido' })
     } finally {
       setRepairing(false)
     }

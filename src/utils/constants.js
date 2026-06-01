@@ -38,6 +38,17 @@ export const GROUP_LABELS = ['A','B','C','D','E','F','G','H','I','J','K','L']
 // Equipos anfitriones (ventaja de sede)
 export const HOST_TEAMS = ['México', 'Estados Unidos', 'Canadá']
 
+// Logros/Badges
+export const BADGES = [
+  { id: 'first_correct', emoji: '🎯', name: 'Bautismo de fuego', desc: 'Primera predicción de resultado correcta' },
+  { id: 'first_exact',   emoji: '🦅', name: 'Ojo de águila',    desc: 'Primera exacta acertada' },
+  { id: 'streak_3',      emoji: '🔥', name: 'En racha',         desc: '3 resultados consecutivos correctos' },
+  { id: 'streak_5',      emoji: '⚡', name: 'Máquina',          desc: '5 resultados consecutivos correctos' },
+  { id: 'perfect_match', emoji: '⭐', name: 'Partido perfecto', desc: 'Aciertas 1x2, BTTS y Over/Under en el mismo partido' },
+  { id: 'three_exacts',  emoji: '🔮', name: 'Adivino',          desc: '3 marcadores exactos acertados' },
+  { id: 'veteran',       emoji: '🏅', name: 'Veterano',         desc: '20 predicciones de resultado apostadas' },
+]
+
 // Puntos fijos por mercado
 export const POINTS = {
   MATCH_1X2:      50,

@@ -1,56 +1,60 @@
-const { onCall, HttpsError } = require('firebase-functions/v2/https')
-const { getAuth }            = require('firebase-admin/auth')
-const { getFirestore }       = require('firebase-admin/firestore')
+const { onRequest }     = require('firebase-functions/v2/https')
+const { getAuth }       = require('firebase-admin/auth')
+const { getFirestore }  = require('firebase-admin/firestore')
+const { initializeApp } = require('firebase-admin/app')
 
-const db   = getFirestore()
-const auth = getAuth()
+try { initializeApp() } catch (_) {}
 
-/**
- * Detecta usuarios de Firebase Auth sin documento en /users/{uid}
- * y los crea automáticamente. Solo accesible por admins.
- */
-exports.repairMissingUsers = onCall(async (request) => {
-  if (!request.auth) throw new HttpsError('unauthenticated', 'No autorizado')
+const db        = getFirestore()
+const adminAuth = getAuth()
 
-  const callerDoc = await db.collection('users').doc(request.auth.uid).get()
-  if (!callerDoc.exists || callerDoc.data().role !== 'admin') {
-    throw new HttpsError('permission-denied', 'Acceso denegado')
+exports.repairMissingUsers = onRequest({ cors: true }, async (req, res) => {
+  if (req.method === 'OPTIONS') { res.status(204).send(''); return }
+
+  // Verificar token de Firebase Auth
+  const header = req.headers.authorization ?? ''
+  if (!header.startsWith('Bearer ')) { res.status(401).json({ error: 'No autorizado' }); return }
+
+  let decoded
+  try { decoded = await adminAuth.verifyIdToken(header.slice(7)) }
+  catch { res.status(401).json({ error: 'Token inválido' }); return }
+
+  // Solo admins
+  const callerSnap = await db.collection('users').doc(decoded.uid).get()
+  if (!callerSnap.exists || callerSnap.data().role !== 'admin') {
+    res.status(403).json({ error: 'Acceso denegado' }); return
   }
 
-  // Obtener todos los usuarios de Auth (en páginas de 1000)
+  // Listar todos los usuarios de Auth
   const authUsers = []
   let pageToken
   do {
-    const result = await auth.listUsers(1000, pageToken)
-    authUsers.push(...result.users)
-    pageToken = result.pageToken
+    const page = await adminAuth.listUsers(1000, pageToken)
+    authUsers.push(...page.users)
+    pageToken = page.pageToken
   } while (pageToken)
 
-  if (authUsers.length === 0) return { created: 0, total: 0 }
+  if (authUsers.length === 0) { res.json({ created: 0, total: 0 }); return }
 
-  // Leer todos los documentos /users que existen
+  // Detectar qué UIDs no tienen documento en Firestore
   const uids = authUsers.map(u => u.uid)
-  // getDocs de múltiples docs en lotes de 10 (límite de getAll)
   const existingUids = new Set()
   for (let i = 0; i < uids.length; i += 10) {
-    const chunk = uids.slice(i, i + 10)
-    const refs  = chunk.map(uid => db.collection('users').doc(uid))
+    const refs  = uids.slice(i, i + 10).map(uid => db.collection('users').doc(uid))
     const snaps = await db.getAll(...refs)
     snaps.forEach(s => { if (s.exists) existingUids.add(s.id) })
   }
 
-  // Crear los documentos faltantes
   const missing = authUsers.filter(u => !existingUids.has(u.uid))
+  if (missing.length === 0) { res.json({ created: 0, total: authUsers.length }); return }
 
-  if (missing.length === 0) return { created: 0, total: authUsers.length }
-
+  // Crear los documentos faltantes
   const batch = db.batch()
   for (const u of missing) {
     const emailPrefix = (u.email ?? '').split('@')[0] || u.uid.slice(0, 8)
-    const username    = u.displayName || emailPrefix
     batch.set(db.collection('users').doc(u.uid), {
       uid:            u.uid,
-      username,
+      username:       u.displayName || emailPrefix,
       email:          u.email ?? '',
       role:           'user',
       totalPoints:    0,
@@ -60,5 +64,5 @@ exports.repairMissingUsers = onCall(async (request) => {
   }
   await batch.commit()
 
-  return { created: missing.length, total: authUsers.length }
+  res.json({ created: missing.length, total: authUsers.length })
 })

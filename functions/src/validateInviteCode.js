@@ -13,7 +13,7 @@ const db   = getFirestore()
  * Crea el documento /users/{uid} tras el registro.
  * Se llama desde el cliente tras createUserWithEmailAndPassword().
  */
-exports.validateInviteCode = onCall(async (request) => {
+exports.validateInviteCode = onCall({ cors: true }, async (request) => {
   const { uid, username } = request.data
 
   await db.collection('users').doc(uid).set({

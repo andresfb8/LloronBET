@@ -76,7 +76,7 @@ const TEAM_ES = {
   'Indonesia':       'Indonesia',
 }
 
-exports.syncMatches = onCall(async (request) => {
+exports.syncMatches = onCall({ cors: true }, async (request) => {
   // Verificar que el llamante es admin
   if (!request.auth) throw new HttpsError('unauthenticated', 'No autorizado')
 

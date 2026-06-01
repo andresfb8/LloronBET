@@ -236,6 +236,11 @@ export default function MatchDetailPage() {
         </Button>
       )}
 
+      {/* Resumen de distribución (post-close) */}
+      {marketClosed && allPreds.length > 0 && (
+        <PredictionSummary preds={allPreds} match={match} />
+      )}
+
       {/* All predictions (post-close) */}
       {marketClosed && allPreds.length > 0 && (
         <AllPredictions preds={allPreds} match={match} currentUid={user.uid} usersMap={usersMap} />
@@ -254,6 +259,68 @@ function TeamBlock({ flag, name, align = 'left' }) {
         : <span className="w-10 h-10 rounded bg-border" />
       }
       <span className="font-body font-semibold text-sm text-white text-center leading-tight">{name}</span>
+    </div>
+  )
+}
+
+function PredictionSummary({ preds, match }) {
+  const markets = [
+    {
+      key:    'market_1x2',
+      label:  'Ganador',
+      opts:   [{ v: 'home', l: 'Local' }, { v: 'draw', l: 'Empate' }, { v: 'away', l: 'Visitante' }],
+    },
+    {
+      key:    'market_btts',
+      label:  'Ambos Marcan',
+      opts:   [{ v: 'yes', l: 'Sí' }, { v: 'no', l: 'No' }],
+    },
+    {
+      key:    'market_overunder',
+      label:  'Total Goles',
+      opts:   [{ v: 'over', l: 'Más 2.5' }, { v: 'under', l: 'Menos 2.5' }],
+    },
+  ]
+
+  const rows = markets.map(({ key, label, opts }) => {
+    const voters = preds.filter(p => p[key] != null)
+    if (voters.length === 0) return null
+    const counts = opts.map(o => ({ ...o, n: voters.filter(p => p[key] === o.v).length }))
+    const total  = voters.length
+    return { label, counts, total }
+  }).filter(Boolean)
+
+  if (rows.length === 0) return null
+
+  return (
+    <div className="bg-surface border border-border rounded-xl p-4 flex flex-col gap-4">
+      <h3 className="font-display text-sm font-semibold uppercase tracking-widest text-muted">
+        Distribución del grupo
+      </h3>
+      {rows.map(({ label, counts, total }) => (
+        <div key={label} className="flex flex-col gap-1.5">
+          <p className="text-xs text-muted font-display font-semibold">{label}</p>
+          <div className="flex gap-2 items-center">
+            {counts.map(({ v, l, n }) => {
+              const pct = total > 0 ? Math.round((n / total) * 100) : 0
+              return (
+                <div key={v} className="flex-1 flex flex-col gap-1">
+                  <div className="h-2 rounded-full bg-odds-default overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-primary transition-all"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-xs text-muted">{l}</span>
+                    <span className="text-xs font-display font-bold text-white">{pct}%</span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ))}
     </div>
   )
 }

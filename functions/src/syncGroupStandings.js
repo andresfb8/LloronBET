@@ -65,7 +65,7 @@ const TEAM_ES = {
   'Indonesia':       'Indonesia',
 }
 
-exports.syncGroupStandings = onCall(async (request) => {
+exports.syncGroupStandings = onCall({ cors: true }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'No autorizado')
 
   const userDoc = await db.collection('users').doc(request.auth.uid).get()

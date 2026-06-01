@@ -1,0 +1,75 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuth() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function marketIsOpen(matchId) {
+      let fixture = get(/databases/$(database)/documents/matches/$(matchId));
+      return fixture.data.datetime > request.time + duration.value(5, 'm');
+    }
+
+    // /users
+    match /users/{uid} {
+      allow read: if isAuth();
+      allow create: if isAuth() && request.auth.uid == uid;
+      allow update: if isAuth() && request.auth.uid == uid
+                    && !request.resource.data.diff(resource.data).affectedKeys()
+                       .hasAny(['totalPoints', 'longTermPoints', 'role']);
+      allow write: if isAdmin();
+    }
+
+    // /matches
+    match /matches/{matchId} {
+      allow read: if isAuth();
+      allow write: if isAdmin();
+    }
+
+    // /predictions — regla crítica de privacidad
+    match /predictions/{predictionId} {
+      // Puede leer su propia predicción siempre
+      allow read: if isAuth() && resource.data.userId == request.auth.uid;
+
+      // Puede leer predicciones ajenas SOLO si el mercado ya cerró
+      allow read: if isAuth() && !marketIsOpen(resource.data.matchId);
+
+      // Puede crear su predicción SOLO si el mercado está abierto
+      allow create: if isAuth()
+                    && request.resource.data.userId == request.auth.uid
+                    && marketIsOpen(request.resource.data.matchId);
+
+      // Puede editar su predicción SOLO si el mercado está abierto
+      allow update: if isAuth()
+                    && resource.data.userId == request.auth.uid
+                    && marketIsOpen(resource.data.matchId);
+
+      // Nunca puede borrar ni modificar puntos desde cliente
+      allow delete: if false;
+
+      // Admin puede leer y escribir todo
+      allow read, write: if isAdmin();
+    }
+
+    // /config — grupos, bonuses, etc.
+    match /config/{configId} {
+      allow read: if isAuth();
+      allow write: if isAdmin();
+    }
+
+    // /longterm
+    match /longterm/{uid} {
+      allow read: if isAuth();
+      allow create: if isAuth() && request.auth.uid == uid;
+      allow update: if isAuth()
+                    && request.auth.uid == uid
+                    && resource.data.isLocked == false;
+      allow write: if isAdmin();
+    }
+  }
+}

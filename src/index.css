@@ -1,0 +1,50 @@
+@import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=DM+Sans:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-bg:           #121b14;
+  --color-surface:      #1a261f;
+  --color-primary:      #005a42;
+  --color-primary-dark: #003d2d;
+  --color-text:         #ffffff;
+  --color-text-muted:   #a7b7bc;
+  --color-odds-default: #1e2d22;
+  --color-odds-text:    #ffdf1b;
+  --color-selected:     #ffdf1b;
+  --color-selected-text:#121b14;
+  --color-live:         #ff3b30;
+  --color-win:          #00ff85;
+  --color-border:       #2a3d2e;
+}
+
+@layer utilities {
+  @keyframes slideUp {
+    from { opacity: 0; transform: translate(-50%, 12px); }
+    to   { opacity: 1; transform: translate(-50%, 0);    }
+  }
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    font-family: 'DM Sans', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  #root {
+    min-height: 100svh;
+    display: flex;
+    flex-direction: column;
+  }
+}

@@ -77,6 +77,12 @@ export default function LoginPage() {
             Regístrate
           </Link>
         </p>
+
+        <p className="text-center text-muted text-sm mt-2">
+          <Link to="/faq" className="text-odds hover:underline">
+            Preguntas frecuentes
+          </Link>
+        </p>
       </div>
     </div>
   )

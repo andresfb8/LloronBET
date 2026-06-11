@@ -1,9 +1,12 @@
-import { Navigate } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import Spinner from '../ui/Spinner'
 
+const PUBLIC_PATHS = ['/faq']
+
 export default function ProtectedRoute({ children, requireAdmin = false }) {
   const { user, profile, loading } = useAuth()
+  const location = useLocation()
 
   if (loading) {
     return (
@@ -13,7 +16,7 @@ export default function ProtectedRoute({ children, requireAdmin = false }) {
     )
   }
 
-  if (!user) return <Navigate to="/login" replace />
+  if (!user && !PUBLIC_PATHS.includes(location.pathname)) return <Navigate to="/login" replace />
   if (requireAdmin && profile?.role !== 'admin') return <Navigate to="/" replace />
 
   return children

@@ -7,6 +7,7 @@ const { calculateLongTermPoints } = require('./calculateLongTermPoints')
 const { syncTopScorers }      = require('./syncTopScorers')
 const { syncGroupStandings }  = require('./syncGroupStandings')
 const { repairMissingUsers }  = require('./repairMissingUsers')
+const { recalculateMatchPoints } = require('./recalculateMatchPoints')
 
 module.exports = {
   validateInviteCode,
@@ -18,4 +19,5 @@ module.exports = {
   syncTopScorers,
   syncGroupStandings,
   repairMissingUsers,
+  recalculateMatchPoints,
 }

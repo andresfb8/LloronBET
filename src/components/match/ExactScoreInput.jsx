@@ -37,6 +37,9 @@ export default function ExactScoreInput({ value, onChange, disabled, pts = 100 }
           placeholder="0"
         />
       </div>
+      <p className="text-xs text-muted text-center">
+        Rellena ambos campos para fijar tu marcador exacto (incluido 0-0): el "0" gris es solo una guía, no cuenta como predicción.
+      </p>
     </div>
   )
 }

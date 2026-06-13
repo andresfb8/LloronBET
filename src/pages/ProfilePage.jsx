@@ -1,14 +1,50 @@
+import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
+import { doc, updateDoc } from 'firebase/firestore'
 import { useAuth } from '../contexts/AuthContext'
+import { db } from '../firebase'
 import { BADGES } from '../utils/constants'
 
 export default function ProfilePage() {
-  const { profile, signOut } = useAuth()
+  const { user, profile, signOut } = useAuth()
   const navigate = useNavigate()
+
+  const [editing, setEditing]   = useState(false)
+  const [newName, setNewName]   = useState('')
+  const [saving, setSaving]     = useState(false)
+  const [error, setError]       = useState('')
 
   async function handleSignOut() {
     await signOut()
     navigate('/login', { replace: true })
+  }
+
+  function startEdit() {
+    setNewName(profile.username ?? '')
+    setError('')
+    setEditing(true)
+  }
+
+  function cancelEdit() {
+    setEditing(false)
+    setError('')
+  }
+
+  async function handleSave() {
+    const trimmed = newName.trim()
+    if (!trimmed) { setError('El nombre no puede estar vacío.'); return }
+    if (trimmed === profile.username) { setEditing(false); return }
+
+    setSaving(true)
+    setError('')
+    try {
+      await updateDoc(doc(db, 'users', user.uid), { username: trimmed })
+      setEditing(false)
+    } catch {
+      setError('Error al guardar. Inténtalo de nuevo.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   if (!profile) return null
@@ -23,10 +59,54 @@ export default function ProfilePage() {
           {initials}
         </div>
         <div className="flex-1 min-w-0">
-          <p className="font-display font-bold text-xl text-white truncate">{profile.username}</p>
-          <p className="text-muted text-sm truncate">{profile.email}</p>
-          {profile.role === 'admin' && (
-            <span className="text-xs font-display font-semibold text-odds">ADMIN</span>
+          {editing ? (
+            <div className="flex flex-col gap-2">
+              <input
+                type="text"
+                value={newName}
+                onChange={e => setNewName(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') cancelEdit() }}
+                autoFocus
+                maxLength={30}
+                className="w-full bg-odds-default border border-primary rounded-lg px-3 py-1.5 text-white text-sm font-body focus:outline-none"
+              />
+              {error && <p className="text-xs text-live">{error}</p>}
+              <div className="flex gap-2">
+                <button
+                  onClick={handleSave}
+                  disabled={saving}
+                  className="flex-1 bg-primary text-white text-xs font-display font-semibold py-1.5 rounded-lg disabled:opacity-50"
+                >
+                  {saving ? 'Guardando…' : 'Guardar'}
+                </button>
+                <button
+                  onClick={cancelEdit}
+                  disabled={saving}
+                  className="flex-1 bg-odds-default text-muted text-xs font-display font-semibold py-1.5 rounded-lg border border-border"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 min-w-0">
+              <p className="font-display font-bold text-xl text-white truncate">{profile.username}</p>
+              <button
+                onClick={startEdit}
+                className="shrink-0 text-muted hover:text-white text-xs font-display font-semibold transition-colors"
+                title="Cambiar nombre"
+              >
+                ✏️
+              </button>
+            </div>
+          )}
+          {!editing && (
+            <>
+              <p className="text-muted text-sm truncate">{profile.email}</p>
+              {profile.role === 'admin' && (
+                <span className="text-xs font-display font-semibold text-odds">ADMIN</span>
+              )}
+            </>
           )}
         </div>
       </div>

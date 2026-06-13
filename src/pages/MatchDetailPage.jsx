@@ -5,7 +5,7 @@ import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
-import { isMarketOpen } from '../utils/marketHelpers'
+import { isMarketOpen, MARKET_LABELS, qualifierLabel } from '../utils/marketHelpers'
 import { POINTS } from '../utils/constants'
 import MarketSelector from '../components/match/MarketSelector'
 import ExactScoreInput from '../components/match/ExactScoreInput'
@@ -14,7 +14,17 @@ import CountdownTimer from '../components/ui/CountdownTimer'
 import Button from '../components/ui/Button'
 import Spinner from '../components/ui/Spinner'
 import Toast from '../components/ui/Toast'
+import Chip from '../components/ui/Chip'
 import { useUsers } from '../hooks/useUsers'
+
+// Evita que una lectura de Firestore colgada (mala conexión) deje la página
+// cargando para siempre — tras 15s se rechaza y se ofrece reintentar.
+function withTimeout(promise, ms = 15_000) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)),
+  ])
+}
 
 export default function MatchDetailPage() {
   const { matchId } = useParams()
@@ -26,8 +36,11 @@ export default function MatchDetailPage() {
   const [prediction, setPrediction] = useState(null)
   const [allPreds, setAllPreds]     = useState([])
   const [loading, setLoading]       = useState(true)
+  const [loadError, setLoadError]   = useState(false)
+  const [retryKey, setRetryKey]     = useState(0)
   const [saving, setSaving]         = useState(false)
   const [toast, setToast]           = useState(null)
+  const [saveBlocked, setSaveBlocked] = useState(false)
 
   // Form state
   const [market1x2, setMarket1x2]             = useState(null)
@@ -37,37 +50,56 @@ export default function MatchDetailPage() {
   const [marketQualifier, setMarketQualifier] = useState(null)
 
   useEffect(() => {
+    let cancelled = false
+
     async function load() {
-      const snap = await getDoc(doc(db, 'matches', matchId))
-      if (!snap.exists()) { navigate('/'); return }
-      const m = { id: snap.id, ...snap.data() }
-      setMatch(m)
+      setLoading(true)
+      setLoadError(false)
+      try {
+        const snap = await withTimeout(getDoc(doc(db, 'matches', matchId)))
+        if (cancelled) return
+        if (!snap.exists()) { navigate('/'); return }
+        const m = { id: snap.id, ...snap.data() }
+        setMatch(m)
 
-      // Predicción propia
-      const predSnap = await getDoc(doc(db, 'predictions', `${user.uid}_${matchId}`))
-      if (predSnap.exists()) {
-        const p = predSnap.data()
-        setPrediction(p)
-        setMarket1x2(p.market_1x2 ?? null)
-        setMarketBtts(p.market_btts ?? null)
-        setMarketOu(p.market_overunder ?? null)
-        setExactScore(p.exact_score ?? { home: '', away: '' })
-        setMarketQualifier(p.market_qualifier ?? null)
+        // Predicción propia
+        const predSnap = await withTimeout(getDoc(doc(db, 'predictions', `${user.uid}_${matchId}`)))
+        if (cancelled) return
+        if (predSnap.exists()) {
+          const p = predSnap.data()
+          setPrediction(p)
+          setMarket1x2(p.market_1x2 ?? null)
+          setMarketBtts(p.market_btts ?? null)
+          setMarketOu(p.market_overunder ?? null)
+          setExactScore(p.exact_score ?? { home: '', away: '' })
+          setMarketQualifier(p.market_qualifier ?? null)
+        }
+
+        // Si el mercado ya cerró, cargar predicciones de todos.
+        // Nota: el cliente puede creer que cerró antes que el servidor (desfase de reloj),
+        // y entonces la regla de seguridad rechaza esta query — no debe bloquear la página.
+        if (!isMarketOpen(m.datetime)) {
+          try {
+            const q = query(collection(db, 'predictions'), where('matchId', '==', matchId))
+            const predsSnap = await withTimeout(getDocs(q))
+            if (!cancelled) setAllPreds(predsSnap.docs.map(d => ({ id: d.id, ...d.data() })))
+          } catch (err) {
+            console.error('MatchDetailPage allPreds query error:', err.code ?? err.message ?? err)
+            if (!cancelled) setAllPreds([])
+          }
+        }
+
+        if (!cancelled) setLoading(false)
+      } catch (err) {
+        console.error('MatchDetailPage load error:', err.code ?? err.message ?? err)
+        if (!cancelled) { setLoadError(true); setLoading(false) }
       }
-
-      // Si el mercado ya cerró, cargar predicciones de todos
-      if (!isMarketOpen(m.datetime)) {
-        const q = query(collection(db, 'predictions'), where('matchId', '==', matchId))
-        const predsSnap = await getDocs(q)
-        setAllPreds(predsSnap.docs.map(d => ({ id: d.id, ...d.data() })))
-      }
-
-      setLoading(false)
     }
     load()
-  }, [matchId, user, navigate])
+    return () => { cancelled = true }
+  }, [matchId, user, navigate, retryKey])
 
-  const marketClosed = match ? !isMarketOpen(match.datetime) : true
+  const marketClosed = match ? (!isMarketOpen(match.datetime) || saveBlocked) : true
   const isFinished   = match?.status === 'FT'
   const isLive       = match?.status === 'LIVE'
   const isKnockout   = match?.round && match.round !== 'Fase de Grupos'
@@ -76,8 +108,13 @@ export default function MatchDetailPage() {
     if (marketClosed || saving) return
     setSaving(true)
     try {
-      const exactFinal = (exactScore.home !== '' && exactScore.away !== '')
-        ? { home: Number(exactScore.home), away: Number(exactScore.away) }
+      // Si el usuario rellena un solo campo, el otro se interpreta como 0
+      // (coincide con el placeholder "0" que se muestra en el campo vacío).
+      const exactFinal = (exactScore.home !== '' || exactScore.away !== '')
+        ? {
+            home: exactScore.home === '' ? 0 : Number(exactScore.home),
+            away: exactScore.away === '' ? 0 : Number(exactScore.away),
+          }
         : null
 
       // Contar cambios de predicción (solo updates, no primer guardado)
@@ -99,8 +136,16 @@ export default function MatchDetailPage() {
         points_breakdown: null,
       })
       setToast({ message: 'Predicción guardada', type: 'success' })
-    } catch {
-      setToast({ message: 'Error al guardar', type: 'error' })
+    } catch (err) {
+      if (err.code === 'permission-denied') {
+        // El servidor considera el mercado cerrado (desfase de reloj del
+        // cliente): NO se ha guardado nada. Bloquear el formulario para que
+        // el usuario no crea que su pronóstico quedó registrado.
+        setSaveBlocked(true)
+        setToast({ message: 'El mercado ya ha cerrado. Tu pronóstico NO se ha guardado.', type: 'error' })
+      } else {
+        setToast({ message: 'Error al guardar', type: 'error' })
+      }
     } finally {
       setSaving(false)
     }
@@ -109,6 +154,19 @@ export default function MatchDetailPage() {
   const closeToast = useCallback(() => setToast(null), [])
 
   if (loading) return <Spinner className="mt-16" />
+
+  if (loadError || !match) {
+    return (
+      <div className="flex flex-col items-center justify-center mt-24 gap-3 px-6 text-center">
+        <span className="text-4xl">⚠️</span>
+        <p className="text-white font-display text-lg font-semibold">No se pudo cargar el partido</p>
+        <p className="text-muted text-sm">Comprueba tu conexión e inténtalo de nuevo.</p>
+        <Button onClick={() => setRetryKey(k => k + 1)} className="mt-2 px-6">
+          Reintentar
+        </Button>
+      </div>
+    )
+  }
 
   const datetime = match.datetime?.toDate ? match.datetime.toDate() : new Date(match.datetime)
   const dateStr  = format(datetime, "EEEE d 'de' MMMM · HH:mm", { locale: es })
@@ -143,6 +201,14 @@ export default function MatchDetailPage() {
           )}
         </div>
       </div>
+
+      {saveBlocked && (
+        <div className="bg-live/10 border border-live rounded-xl p-3 text-center">
+          <p className="text-live text-sm font-display font-semibold">
+            El mercado ya ha cerrado. Tu pronóstico NO se ha guardado.
+          </p>
+        </div>
+      )}
 
       {/* Markets */}
       <div className="bg-surface border border-border rounded-xl p-4 flex flex-col gap-5">
@@ -326,9 +392,6 @@ function PredictionSummary({ preds, match }) {
 }
 
 function AllPredictions({ preds, match, currentUid, usersMap }) {
-  const LABELS = { home: 'Local', draw: 'Empate', away: 'Visitante', yes: 'SÍ', no: 'NO', over: 'Más', under: 'Menos' }
-  const qualifierLabel = q => q === 'home' ? match.homeTeam : match.awayTeam
-
   const sorted = [...preds].sort((a, b) => (b.points_won ?? 0) - (a.points_won ?? 0))
 
   return (
@@ -349,11 +412,11 @@ function AllPredictions({ preds, match, currentUid, usersMap }) {
                 {isMe ? `${uname} (tú)` : uname}
               </span>
               <div className="flex gap-2 flex-1 justify-center flex-wrap">
-                {p.market_1x2       && <Chip label={LABELS[p.market_1x2]} />}
-                {p.market_btts      && <Chip label={`BTTS ${LABELS[p.market_btts]}`} />}
-                {p.market_overunder && <Chip label={LABELS[p.market_overunder]} />}
-                {p.market_qualifier && <Chip label={`Clasifica: ${qualifierLabel(p.market_qualifier)}`} />}
-                {p.exact_score      && <Chip label={`${p.exact_score.home}–${p.exact_score.away}`} highlight />}
+                {p.market_1x2       && <Chip label={MARKET_LABELS[p.market_1x2]} highlight={isMe} />}
+                {p.market_btts      && <Chip label={`BTTS ${MARKET_LABELS[p.market_btts]}`} highlight={isMe} />}
+                {p.market_overunder && <Chip label={MARKET_LABELS[p.market_overunder]} highlight={isMe} />}
+                {p.market_qualifier && <Chip label={`Clasifica: ${qualifierLabel(match, p.market_qualifier)}`} highlight={isMe} />}
+                {p.exact_score      && <Chip label={`${p.exact_score.home}–${p.exact_score.away}`} highlight={isMe} />}
               </div>
               <span className={`font-display font-bold text-sm w-16 text-right ${p.points_won ? 'text-win' : 'text-muted'}`}>
                 {p.points_won != null ? `+${p.points_won}` : '—'}
@@ -363,13 +426,5 @@ function AllPredictions({ preds, match, currentUid, usersMap }) {
         })}
       </div>
     </div>
-  )
-}
-
-function Chip({ label, highlight = false }) {
-  return (
-    <span className={`text-xs px-2 py-0.5 rounded-full font-body ${highlight ? 'bg-odds text-selected-text font-semibold' : 'bg-odds-default text-muted'}`}>
-      {label}
-    </span>
   )
 }

@@ -54,7 +54,7 @@ export default function AdminPage() {
       {activeTab === 'Resultados'  && <TabResultados onToast={setToast} />}
       {activeTab === 'Pre-Mundial' && <TabPreMundial onToast={setToast} />}
       {activeTab === 'Jornadas'    && <TabJornadas   onToast={setToast} />}
-      {activeTab === 'Usuarios'    && <TabUsuarios />}
+      {activeTab === 'Usuarios'    && <TabUsuarios onToast={setToast} />}
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </div>
@@ -182,6 +182,8 @@ function TabResultados({ onToast }) {
   const [away, setAway]           = useState('')
   const [qualifier, setQualifier] = useState('')
   const [saving, setSaving]       = useState(false)
+  const [recalcId, setRecalcId]   = useState('')
+  const [recalculating, setRecalculating] = useState(false)
 
   const match      = matches.find(m => m.id === selected)
   const isKnockout = match?.round && match.round !== 'Fase de Grupos'
@@ -206,18 +208,48 @@ function TabResultados({ onToast }) {
     }
   }
 
-  const pending = matches.filter(m => m.status !== 'FT' && m.status !== 'CANC')
+  // Incluye también partidos ya marcados FT, para poder corregir un
+  // marcador introducido por error.
+  const pending = matches.filter(m => m.status !== 'CANC')
+  const finished = matches.filter(m => m.status === 'FT' && m.finalScore)
+
+  function handleSelectMatch(id) {
+    setSelected(id)
+    const m = matches.find(x => x.id === id)
+    setHome(m?.finalScore ? String(m.finalScore.home) : '')
+    setAway(m?.finalScore ? String(m.finalScore.away) : '')
+    setQualifier(m?.qualifier ?? '')
+  }
+
+  async function handleRecalculate() {
+    if (!recalcId) {
+      onToast({ message: 'Selecciona un partido', type: 'error' }); return
+    }
+    setRecalculating(true)
+    try {
+      const fn  = httpsCallable(functions, 'recalculateMatchPoints')
+      const res = await fn({ matchId: recalcId })
+      onToast({ message: res.data.message, type: 'success' })
+    } catch (err) {
+      onToast({ message: err.message || 'Error al recalcular', type: 'error' })
+    } finally {
+      setRecalculating(false)
+    }
+  }
 
   return (
+    <>
     <Card title="Actualizar resultado">
       <select
         value={selected}
-        onChange={e => { setSelected(e.target.value); setQualifier('') }}
+        onChange={e => handleSelectMatch(e.target.value)}
         className="w-full bg-odds-default border border-border rounded-lg px-3 py-2.5 text-white focus:outline-none focus:border-primary text-sm"
       >
         <option value="">Selecciona un partido</option>
         {pending.map(m => (
-          <option key={m.id} value={m.id}>{m.homeTeam} vs {m.awayTeam}</option>
+          <option key={m.id} value={m.id}>
+            {m.homeTeam} vs {m.awayTeam}{m.status === 'FT' ? ` (FT${m.finalScore ? ` ${m.finalScore.home}-${m.finalScore.away}` : ' sin marcador'})` : ''}
+          </option>
         ))}
       </select>
 
@@ -249,6 +281,28 @@ function TabResultados({ onToast }) {
       </Button>
       <p className="text-xs text-muted text-center">Solo 90' + descuento. La Cloud Function calculará los puntos automáticamente.</p>
     </Card>
+
+    <Card title="Recalcular puntos">
+      <select
+        value={recalcId}
+        onChange={e => setRecalcId(e.target.value)}
+        className="w-full bg-odds-default border border-border rounded-lg px-3 py-2.5 text-white focus:outline-none focus:border-primary text-sm"
+      >
+        <option value="">Selecciona un partido finalizado</option>
+        {finished.map(m => (
+          <option key={m.id} value={m.id}>
+            {m.homeTeam} {m.finalScore.home}-{m.finalScore.away} {m.awayTeam}
+          </option>
+        ))}
+      </select>
+      <Button className="w-full" onClick={handleRecalculate} disabled={recalculating || !recalcId}>
+        {recalculating ? 'Recalculando…' : 'Recalcular puntos'}
+      </Button>
+      <p className="text-xs text-muted text-center">
+        Vuelve a calcular los puntos de un partido ya finalizado (aplica solo la diferencia, sin contar dos veces). Útil si la clasificación se quedó atascada.
+      </p>
+    </Card>
+    </>
   )
 }
 
@@ -491,13 +545,35 @@ function TabPreMundial({ onToast }) {
 const REPAIR_URL = 'https://us-central1-lloronbet.cloudfunctions.net/repairMissingUsers'
 
 /* ─── Tab: Usuarios ─── */
-function TabUsuarios() {
+function TabUsuarios({ onToast }) {
   const { user }              = useAuth()
   const { usersMap, loading } = useUsers()
   const [repairing, setRepairing]     = useState(false)
   const [repairResult, setRepairResult] = useState(null)
+  const [adjustUid, setAdjustUid]     = useState('')
+  const [adjustField, setAdjustField] = useState('totalPoints')
+  const [adjustDelta, setAdjustDelta] = useState('')
+  const [adjusting, setAdjusting]     = useState(false)
 
   const users = Array.from(usersMap.values()).sort((a, b) => (b.totalPoints ?? 0) - (a.totalPoints ?? 0))
+
+  async function handleAdjust() {
+    const delta = Number(adjustDelta)
+    if (!adjustUid || !adjustDelta || isNaN(delta) || delta === 0) {
+      onToast({ message: 'Selecciona usuario e introduce un ajuste distinto de 0', type: 'error' }); return
+    }
+    setAdjusting(true)
+    try {
+      await updateDoc(doc(db, 'users', adjustUid), { [adjustField]: increment(delta) })
+      const uname = usersMap.get(adjustUid)?.username ?? adjustUid
+      onToast({ message: `${delta > 0 ? '+' : ''}${delta} aplicado a ${uname}`, type: 'success' })
+      setAdjustDelta('')
+    } catch {
+      onToast({ message: 'Error al aplicar el ajuste', type: 'error' })
+    } finally {
+      setAdjusting(false)
+    }
+  }
 
   async function handleRepair() {
     setRepairing(true)
@@ -523,6 +599,43 @@ function TabUsuarios() {
 
   return (
     <div className="flex flex-col gap-4">
+      <Card title="Ajustar puntos manualmente">
+        <select
+          value={adjustUid}
+          onChange={e => setAdjustUid(e.target.value)}
+          className="w-full bg-odds-default border border-border rounded-lg px-3 py-2.5 text-white focus:outline-none focus:border-primary text-sm"
+        >
+          <option value="">Selecciona un usuario</option>
+          {users.map(u => (
+            <option key={u.uid} value={u.uid}>
+              {u.username} — {(u.totalPoints ?? 0).toFixed(1)} pts
+            </option>
+          ))}
+        </select>
+        <select
+          value={adjustField}
+          onChange={e => setAdjustField(e.target.value)}
+          className="w-full bg-odds-default border border-border rounded-lg px-3 py-2.5 text-white focus:outline-none focus:border-primary text-sm"
+        >
+          <option value="totalPoints">Puntos Mundial (totalPoints)</option>
+          <option value="longTermPoints">Puntos históricos (longTermPoints)</option>
+        </select>
+        <input
+          type="number"
+          step="any"
+          value={adjustDelta}
+          onChange={e => setAdjustDelta(e.target.value)}
+          placeholder="Ej: 5 o -5"
+          className="w-full bg-odds-default border border-border rounded-lg px-3 py-2.5 text-white focus:outline-none focus:border-primary text-sm"
+        />
+        <Button className="w-full" onClick={handleAdjust} disabled={adjusting || !adjustUid || !adjustDelta}>
+          {adjusting ? 'Aplicando…' : 'Aplicar ajuste'}
+        </Button>
+        <p className="text-xs text-muted text-center">
+          Suma o resta puntos directamente a un usuario. Útil para corregir manualmente un fallo de cálculo.
+        </p>
+      </Card>
+
       <Card title="Reparar usuarios sin perfil">
         <p className="text-xs text-muted">
           Detecta usuarios registrados en Firebase Auth que no tienen documento en Firestore y los crea automáticamente.

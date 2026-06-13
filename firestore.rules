@@ -33,11 +33,15 @@ service cloud.firestore {
 
     // /predictions — regla crítica de privacidad
     match /predictions/{predictionId} {
-      // Puede leer su propia predicción siempre
-      allow read: if isAuth() && resource.data.userId == request.auth.uid;
-
-      // Puede leer predicciones ajenas SOLO si el mercado ya cerró
-      allow read: if isAuth() && !marketIsOpen(resource.data.matchId);
+      // Lectura: el dueño puede leer la suya (incluida la "lectura" de un
+      // documento que aún no existe — primera visita a un partido sin apostar
+      // todavía, donde `resource` es null y no debe denegarse con error);
+      // cualquiera puede leer las ajenas una vez el mercado ha cerrado.
+      allow read: if isAuth() && (
+        resource == null ||
+        resource.data.userId == request.auth.uid ||
+        !marketIsOpen(resource.data.matchId)
+      );
 
       // Puede crear su predicción SOLO si el mercado está abierto
       allow create: if isAuth()

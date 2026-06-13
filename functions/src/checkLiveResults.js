@@ -37,15 +37,12 @@ exports.checkLiveResults = onSchedule('every 15 minutes', async () => {
     const docRef  = docMap.get(matchId)
     if (!docRef) continue   // no está en nuestra BD
 
-    let status = 'NS'
-    if (['IN_PLAY', 'PAUSED'].includes(fixture.status)) status = 'LIVE'
-    if (fixture.status === 'FINISHED')                  status = 'FT'
-
-    const update = { status }
+    const update = {}
 
     if (fixture.status === 'FINISHED') {
       const ft = fixture.score?.fullTime
       if (ft && ft.home !== null && ft.away !== null) {
+        update.status     = 'FT'
         update.finalScore = { home: ft.home, away: ft.away }
 
         // Auto-setear qualifier en partidos KO (la Cloud Function calculatePoints lo usa)
@@ -53,8 +50,16 @@ exports.checkLiveResults = onSchedule('every 15 minutes', async () => {
           if (fixture.score.winner === 'HOME_TEAM') update.qualifier = 'home'
           else if (fixture.score.winner === 'AWAY_TEAM') update.qualifier = 'away'
         }
+      } else {
+        // FINISHED sin marcador todavía (lag de la API): mantener LIVE para
+        // reintentar en la próxima ejecución, no marcar FT a ciegas.
+        update.status = 'LIVE'
       }
+    } else if (['IN_PLAY', 'PAUSED'].includes(fixture.status)) {
+      update.status = 'LIVE'
     }
+
+    if (Object.keys(update).length === 0) continue
 
     batch.update(docRef, update)
     updated++

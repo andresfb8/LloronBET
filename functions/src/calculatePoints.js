@@ -97,16 +97,13 @@ async function checkBadges(userId) {
   }
 }
 
-// ── Main trigger ───────────────────────────────────────────────────────────
-
-exports.calculatePoints = onDocumentUpdated('matches/{matchId}', async (event) => {
-  const before = event.data.before.data()
-  const after  = event.data.after.data()
-
-  if (before.status === 'FT' || after.status !== 'FT') return
-  if (!after.finalScore) return
-
-  const { matchId } = event.params
+// ── Cálculo de puntos para un partido ───────────────────────────────────────
+//
+// Calcula el breakdown de puntos por predicción para un partido finalizado.
+// `applyDelta`: si true, aplica solo la diferencia respecto a `points_won`
+// actual (para recálculos manuales que no deben contar puntos dos veces).
+// Devuelve un resumen { processed, totalPoints, userIds } para logging.
+async function computeMatchPoints(matchId, after, { applyDelta = false } = {}) {
   const score       = after.finalScore
   const result      = getResult(score)
   const btts        = isBtts(score)
@@ -116,6 +113,8 @@ exports.calculatePoints = onDocumentUpdated('matches/{matchId}', async (event) =
 
   const predsSnap = await db.collection('predictions').where('matchId', '==', matchId).get()
   const batch     = db.batch()
+
+  let totalPoints = 0
 
   for (const predDoc of predsSnap.docs) {
     const pred = predDoc.data()
@@ -145,16 +144,47 @@ exports.calculatePoints = onDocumentUpdated('matches/{matchId}', async (event) =
     if (correctCount === maxMarkets)  breakdown.bonus = POINTS.bonusAll
 
     const pointsWon = Object.values(breakdown).reduce((a, b) => a + b, 0)
+    const delta     = applyDelta ? pointsWon - (pred.points_won ?? 0) : pointsWon
 
     batch.update(predDoc.ref, { points_won: pointsWon, points_breakdown: breakdown })
-    batch.update(db.collection('users').doc(pred.userId), {
-      totalPoints: FieldValue.increment(pointsWon),
-    })
+    if (delta !== 0) {
+      batch.update(db.collection('users').doc(pred.userId), {
+        totalPoints: FieldValue.increment(delta),
+      })
+    }
+
+    totalPoints += pointsWon
   }
 
   await batch.commit()
 
-  // Check badges for all affected users (non-blocking on main points flow)
   const userIds = [...new Set(predsSnap.docs.map(d => d.data().userId))]
   await Promise.all(userIds.map(checkBadges))
+
+  return { processed: predsSnap.size, totalPoints, userIds }
+}
+
+// ── Main trigger ───────────────────────────────────────────────────────────
+
+exports.computeMatchPoints = computeMatchPoints
+
+exports.calculatePoints = onDocumentUpdated('matches/{matchId}', async (event) => {
+  const { matchId } = event.params
+  const before = event.data.before.data()
+  const after  = event.data.after.data()
+
+  console.log(`calculatePoints: match ${matchId} status ${before.status} -> ${after.status}`)
+
+  if (before.status === 'FT' || after.status !== 'FT') {
+    console.log(`calculatePoints: match ${matchId} skipped (not a new FT transition)`)
+    return
+  }
+  if (!after.finalScore) {
+    console.log(`calculatePoints: match ${matchId} skipped (FT without finalScore)`)
+    return
+  }
+
+  const { processed, totalPoints } = await computeMatchPoints(matchId, after)
+
+  console.log(`calculatePoints: match ${matchId} done — ${processed} predictions, ${totalPoints} total points distributed`)
 })

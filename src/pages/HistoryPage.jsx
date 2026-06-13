@@ -6,11 +6,11 @@ import { es } from 'date-fns/locale'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
 import { useMatches } from '../hooks/useMatches'
+import { MARKET_LABELS, qualifierLabel } from '../utils/marketHelpers'
 import Spinner from '../components/ui/Spinner'
+import Chip from '../components/ui/Chip'
 
 const TABS = ['Todos', 'Acertados', 'Fallados', 'Pendientes']
-
-const LABEL_1X2 = { home: 'Local', draw: 'Empate', away: 'Visitante' }
 
 export default function HistoryPage() {
   const { user }                = useAuth()
@@ -86,32 +86,37 @@ export default function HistoryPage() {
             const match   = p.match
             const dt      = match.datetime?.toDate ? match.datetime.toDate() : new Date(match.datetime)
             const dateStr = format(dt, "d MMM · HH:mm", { locale: es })
-            const pick    = p.market_1x2 ? LABEL_1X2[p.market_1x2] : '—'
             const pts     = p.points_won
 
             return (
               <button
                 key={p.id}
                 onClick={() => navigate(`/match/${match.id}`)}
-                className={`w-full flex items-center justify-between px-4 py-3 text-left hover:bg-odds-default transition-colors ${i > 0 ? 'border-t border-border' : ''}`}
+                className={`w-full flex flex-col gap-2 px-4 py-3 text-left hover:bg-odds-default transition-colors ${i > 0 ? 'border-t border-border' : ''}`}
               >
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-body font-semibold text-white truncate">
-                    {match.homeTeam} vs {match.awayTeam}
-                  </p>
-                  <p className="text-xs text-muted capitalize">{dateStr}</p>
-                </div>
-                <div className="flex items-center gap-3 shrink-0 ml-2">
-                  <span className="text-xs font-display font-semibold text-muted bg-odds-default px-2 py-0.5 rounded-full">
-                    {pick}
-                  </span>
-                  <span className={`text-sm font-display font-bold w-12 text-right ${
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-body font-semibold text-white truncate">
+                      {match.homeTeam} vs {match.awayTeam}
+                    </p>
+                    <p className="text-xs text-muted capitalize">{dateStr}</p>
+                  </div>
+                  <span className={`text-sm font-display font-bold w-12 text-right shrink-0 ${
                     pts == null    ? 'text-muted' :
                     pts > 0        ? 'text-win'   : 'text-live'
                   }`}>
                     {pts == null ? '·' : pts > 0 ? `+${pts}` : '0'}
                   </span>
                 </div>
+                {(p.market_1x2 || p.market_btts || p.market_overunder || p.market_qualifier || p.exact_score) && (
+                  <div className="flex gap-1.5 flex-wrap">
+                    {p.market_1x2       && <Chip label={MARKET_LABELS[p.market_1x2]} highlight />}
+                    {p.market_btts      && <Chip label={`BTTS ${MARKET_LABELS[p.market_btts]}`} highlight />}
+                    {p.market_overunder && <Chip label={MARKET_LABELS[p.market_overunder]} highlight />}
+                    {p.market_qualifier && <Chip label={`Clasifica: ${qualifierLabel(match, p.market_qualifier)}`} highlight />}
+                    {p.exact_score      && <Chip label={`${p.exact_score.home}–${p.exact_score.away}`} highlight />}
+                  </div>
+                )}
               </button>
             )
           })}

@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app'
 import { getAuth } from 'firebase/auth'
-import { getFirestore } from 'firebase/firestore'
+import { initializeFirestore } from 'firebase/firestore'
 import { getFunctions } from 'firebase/functions'
 
 const firebaseConfig = {
@@ -15,5 +15,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig)
 
 export const auth = getAuth(app)
-export const db   = getFirestore(app)
+// Auto-detecta long-polling: estabiliza la conexión en redes/proxys que
+// cortan las conexiones de streaming de Firestore (causa de cargas colgadas)
+export const db   = initializeFirestore(app, { experimentalAutoDetectLongPolling: true })
 export const fns  = getFunctions(app, 'us-central1')

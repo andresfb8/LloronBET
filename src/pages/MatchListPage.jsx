@@ -11,20 +11,21 @@ export default function MatchListPage() {
   const navigate = useNavigate()
   const { matches, loading: loadingMatches }           = useMatches()
   const { predictionsMap, loading: loadingPredictions } = useUserPredictions()
-  const [now, setNow] = useState(() => Date.now())
+  const [now, setNow]           = useState(() => Date.now())
+  const [cdDismissed, setCdDismissed] = useState(false)
 
-  // Refresh countdown every 30s
+  // 1-second tick — serves both urgent banners and the countdown
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 30_000)
+    const id = setInterval(() => setNow(Date.now()), 1_000)
     return () => clearInterval(id)
   }, [])
 
   const { windowMatches, inauguralMatch, showPreBanner } = useMemo(() => {
     if (matches.length === 0) return { windowMatches: [], inauguralMatch: null, showPreBanner: false }
 
-    const today      = startOfDay(new Date())
-    const todayKey   = format(today, 'yyyy-MM-dd')
-    const maxKey     = format(addDays(today, 2), 'yyyy-MM-dd')
+    const today    = startOfDay(new Date())
+    const todayKey = format(today, 'yyyy-MM-dd')
+    const maxKey   = format(addDays(today, 2), 'yyyy-MM-dd')
 
     const window = matches.filter(m => {
       const dt  = m.datetime?.toDate ? m.datetime.toDate() : new Date(m.datetime)
@@ -41,16 +42,28 @@ export default function MatchListPage() {
       })[0] ?? null
 
     const preBanner = window.length === 0 && inaugural !== null
-
     return { windowMatches: window, inauguralMatch: inaugural, showPreBanner: preBanner }
   }, [matches])
+
+  // All NS matches sharing the earliest datetime (within 1 min) — for the countdown
+  const nextMatches = useMemo(() => {
+    if (!showPreBanner || !inauguralMatch) return []
+    const ref = inauguralMatch.datetime?.toDate
+      ? inauguralMatch.datetime.toDate().getTime()
+      : new Date(inauguralMatch.datetime).getTime()
+    return matches.filter(m => {
+      if (m.status !== 'NS') return false
+      const dt = m.datetime?.toDate ? m.datetime.toDate() : new Date(m.datetime)
+      return Math.abs(dt.getTime() - ref) < 60_000
+    })
+  }, [showPreBanner, inauguralMatch, matches])
 
   // Matches closing in <60 min without a prediction
   const urgentMatches = useMemo(() => {
     return windowMatches.filter(m => {
       if (predictionsMap.has(m.id)) return false
       if (m.status !== 'NS') return false
-      const dt      = m.datetime?.toDate ? m.datetime.toDate() : new Date(m.datetime)
+      const dt       = m.datetime?.toDate ? m.datetime.toDate() : new Date(m.datetime)
       const minsLeft = (dt.getTime() - now) / 60_000
       return minsLeft > 0 && minsLeft < 60
     })
@@ -71,9 +84,7 @@ export default function MatchListPage() {
     return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b))
   }, [displayMatches])
 
-  if (loadingMatches || loadingPredictions) {
-    return <Spinner className="mt-16" />
-  }
+  if (loadingMatches || loadingPredictions) return <Spinner className="mt-16" />
 
   if (matches.length === 0) {
     return (
@@ -86,70 +97,140 @@ export default function MatchListPage() {
   }
 
   return (
-    <div className="px-4 py-4 flex flex-col gap-6">
+    <div className="flex flex-col gap-6">
 
-      {/* Banners de urgencia: partidos en <60 min sin apostar */}
-      {urgentMatches.map(m => {
-        const dt      = m.datetime?.toDate ? m.datetime.toDate() : new Date(m.datetime)
-        const minsLeft = Math.ceil((dt.getTime() - now) / 60_000)
-        return (
-          <div key={m.id} className="bg-odds/10 border border-odds/40 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="text-base shrink-0">⚡</span>
-              <div className="min-w-0">
-                <p className="text-white font-body font-semibold text-sm truncate">{m.homeTeam} vs {m.awayTeam}</p>
-                <p className="text-odds text-xs font-display font-semibold">Empieza en {minsLeft} min</p>
+      {/* ── Countdown banner ── */}
+      {showPreBanner && !cdDismissed && nextMatches.length > 0 && (
+        <CountdownBanner
+          matches={nextMatches}
+          now={now}
+          onDismiss={() => setCdDismissed(true)}
+        />
+      )}
+
+      <div className="px-4 flex flex-col gap-6">
+        {/* Banners urgencia */}
+        {urgentMatches.map(m => {
+          const dt       = m.datetime?.toDate ? m.datetime.toDate() : new Date(m.datetime)
+          const minsLeft = Math.ceil((dt.getTime() - now) / 60_000)
+          return (
+            <div key={m.id} className="bg-odds/10 border border-odds/40 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-base shrink-0">⚡</span>
+                <div className="min-w-0">
+                  <p className="text-white font-body font-semibold text-sm truncate">{m.homeTeam} vs {m.awayTeam}</p>
+                  <p className="text-odds text-xs font-display font-semibold">Empieza en {minsLeft} min</p>
+                </div>
+              </div>
+              <button
+                onClick={() => navigate(`/match/${m.id}`)}
+                className="shrink-0 bg-odds text-bg font-display font-bold text-xs px-3 py-1.5 rounded-lg"
+              >
+                Apostar →
+              </button>
+            </div>
+          )
+        })}
+
+        {/* Banner Pre-Mundial */}
+        {showPreBanner && (
+          <div className="bg-surface border border-border rounded-xl p-4 flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-2xl">🌍</span>
+              <div>
+                <p className="text-white font-display font-bold text-sm">Antes del pitido inicial…</p>
+                <p className="text-muted text-xs mt-0.5">Haz tus pronósticos Pre-Mundial antes de que arranque el torneo.</p>
               </div>
             </div>
             <button
-              onClick={() => navigate(`/match/${m.id}`)}
-              className="shrink-0 bg-odds text-bg font-display font-bold text-xs px-3 py-1.5 rounded-lg"
+              onClick={() => navigate('/longterm')}
+              className="w-full bg-primary hover:bg-primary/80 text-white font-display font-semibold text-sm py-2.5 rounded-lg transition-colors"
             >
-              Apostar →
+              Ir a Pre-Mundial →
             </button>
           </div>
-        )
-      })}
+        )}
 
-      {/* Banner Pre-Mundial */}
-      {showPreBanner && (
-        <div className="bg-surface border border-border rounded-xl p-4 flex flex-col gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-2xl">🌍</span>
-            <div>
-              <p className="text-white font-display font-bold text-sm">Antes del pitido inicial…</p>
-              <p className="text-muted text-xs mt-0.5">Haz tus pronósticos Pre-Mundial antes de que arranque el torneo.</p>
+        {/* Lista de partidos */}
+        {grouped.map(([dateKey, dayMatches]) => (
+          <section key={dateKey}>
+            <h3 className="text-xs font-display font-semibold uppercase tracking-widest text-muted mb-3">
+              {showPreBanner ? `Primer partido · ${formatDayLabel(dateKey)}` : formatDayLabel(dateKey)}
+            </h3>
+            <div className="flex flex-col gap-2">
+              {dayMatches.map(match => (
+                <MatchCard
+                  key={match.id}
+                  match={match}
+                  prediction={predictionsMap.get(match.id) ?? null}
+                />
+              ))}
             </div>
-          </div>
-          <button
-            onClick={() => navigate('/longterm')}
-            className="w-full bg-primary hover:bg-primary/80 text-white font-display font-semibold text-sm py-2.5 rounded-lg transition-colors"
-          >
-            Ir a Pre-Mundial →
-          </button>
-        </div>
-      )}
-
-      {/* Lista de partidos */}
-      {grouped.map(([dateKey, dayMatches]) => (
-        <section key={dateKey}>
-          <h3 className="text-xs font-display font-semibold uppercase tracking-widest text-muted mb-3">
-            {showPreBanner ? `Primer partido · ${formatDayLabel(dateKey)}` : formatDayLabel(dateKey)}
-          </h3>
-          <div className="flex flex-col gap-2">
-            {dayMatches.map(match => (
-              <MatchCard
-                key={match.id}
-                match={match}
-                prediction={predictionsMap.get(match.id) ?? null}
-              />
-            ))}
-          </div>
-        </section>
-      ))}
-
+          </section>
+        ))}
+      </div>
     </div>
   )
+}
+
+// ── Countdown banner ────────────────────────────────────────────────────────
+
+function CountdownBanner({ matches, now, onDismiss }) {
+  const dt  = matches[0].datetime?.toDate
+    ? matches[0].datetime.toDate()
+    : new Date(matches[0].datetime)
+  const ms  = dt.getTime() - now
+  const dateStr = format(dt, "EEE d 'de' MMM · HH:mm", { locale: es })
+
+  return (
+    <div className="bg-surface border-b border-border px-4 py-3 flex flex-col gap-2">
+      {/* Header row */}
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-display font-semibold uppercase tracking-widest text-muted">
+          ⏱ {matches.length === 1 ? 'Próximo partido' : `Próximos ${matches.length} partidos`}
+        </span>
+        <button
+          onClick={onDismiss}
+          className="text-muted hover:text-white text-base leading-none transition-colors"
+          aria-label="Cerrar"
+        >
+          ×
+        </button>
+      </div>
+
+      {/* Matches */}
+      <div className="flex flex-col gap-0.5">
+        {matches.map(m => (
+          <p key={m.id} className="text-sm font-body font-semibold text-white">
+            {m.homeTeam} vs {m.awayTeam}
+          </p>
+        ))}
+        <p className="text-xs text-muted capitalize">{dateStr}</p>
+      </div>
+
+      {/* Countdown */}
+      <p className="font-display font-bold text-2xl text-primary tabular-nums">
+        {formatCountdown(ms)}
+      </p>
+    </div>
+  )
+}
+
+function formatCountdown(ms) {
+  if (ms <= 0) return '¡Arranca!'
+  const s    = Math.floor(ms / 1000)
+  const days = Math.floor(s / 86400)
+  const h    = Math.floor((s % 86400) / 3600)
+  const m    = Math.floor((s % 3600) / 60)
+  const sec  = s % 60
+
+  const hh  = String(h).padStart(2, '0')
+  const mm  = String(m).padStart(2, '0')
+  const ss  = String(sec).padStart(2, '0')
+
+  return days > 0
+    ? `${days}d ${hh}h ${mm}m ${ss}s`
+    : `${hh}:${mm}:${ss}`
 }
 
 function formatDayLabel(dateKey) {

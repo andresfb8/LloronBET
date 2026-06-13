@@ -5,9 +5,8 @@ import {
   createUserWithEmailAndPassword,
   signOut as firebaseSignOut,
 } from 'firebase/auth'
-import { doc, onSnapshot, updateDoc, increment } from 'firebase/firestore'
-import { httpsCallable } from 'firebase/functions'
-import { auth, db, fns } from '../firebase'
+import { doc, setDoc, onSnapshot, updateDoc, increment } from 'firebase/firestore'
+import { auth, db } from '../firebase'
 
 const AuthContext = createContext(null)
 
@@ -51,10 +50,14 @@ export function AuthProvider({ children }) {
 
   async function signUp(email, password, username) {
     const credential = await createUserWithEmailAndPassword(auth, email, password)
-    const validate = httpsCallable(fns, 'validateInviteCode')
-    await validate({
-      uid: credential.user.uid,
+    await setDoc(doc(db, 'users', credential.user.uid), {
+      uid:            credential.user.uid,
       username,
+      email:          email.trim(),
+      role:           'user',
+      totalPoints:    0,
+      longTermPoints: 0,
+      createdAt:      new Date(),
     })
   }
 
